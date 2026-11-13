@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Deserializer};
 use std::io::Result;
+use std::path::Path;
 
 use crate::config::{ConfigOps, TomlConfig};
 
@@ -168,6 +169,14 @@ pub struct Agent {
     /// Agent policy
     #[serde(default)]
     pub policy: String,
+
+    /// Host path of a container registry auth file (containers-auth.json format) for pulling
+    /// images inside the guest. When set, the runtime copies it into the guest before any
+    /// container is created and points the guest image puller at it with the
+    /// agent.image_registry_auth kernel parameter. The guest only reads it on its first image
+    /// pull, so later changes to the host file only reach new sandboxes.
+    #[serde(default)]
+    pub image_registry_auth_file: String,
 }
 
 fn deserialize_secs_to_millis<'de, D>(deserializer: D) -> std::result::Result<u32, D::Error>
@@ -200,6 +209,7 @@ impl std::default::Default for Agent {
             launch_process_timeout: 0,
             mem_agent: MemAgent::default(),
             policy: Default::default(),
+            image_registry_auth_file: Default::default(),
         }
     }
 }
@@ -254,6 +264,13 @@ impl Agent {
             return Err(std::io::Error::other(
                 "reconnect_timeout_ms must be >= dial_timeout_ms (reconnect_timeout_ms is the \
                  overall agent connection budget; dial_timeout_ms is the sleep between retries)",
+            ));
+        }
+        if !self.image_registry_auth_file.is_empty()
+            && !Path::new(&self.image_registry_auth_file).is_absolute()
+        {
+            return Err(std::io::Error::other(
+                "image_registry_auth_file must be an absolute path",
             ));
         }
 
