@@ -71,7 +71,7 @@ use kata_types::config::hypervisor::Hypervisor as HypervisorConfig;
 ))]
 use kata_types::config::hypervisor::HYPERVISOR_NAME_CH;
 use kata_types::config::hypervisor::{VIRTIO_BLK_CCW, VIRTIO_BLK_PCI};
-use kata_types::config::{hypervisor::Factory, TomlConfig};
+use kata_types::config::{hypervisor::Factory, TomlConfig, GUEST_IMAGE_REGISTRY_AUTH_PATH};
 use kata_types::initdata::{calculate_initdata_digest, ProtectedPlatform};
 use kata_types::rootless::is_rootless;
 use oci_spec::runtime as oci;
@@ -107,6 +107,9 @@ const STOP_VM_TIMEOUT: Duration = Duration::from_secs(15);
 const LATE_VM_EXIT_TIMEOUT: Duration = Duration::from_secs(90);
 const CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(5);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(120);
+
+// The file goes to the agent in a single CopyFile request.
+const MAX_REGISTRY_AUTH_FILE_SIZE: usize = 1 << 20;
 
 // Failed Cloud Hypervisor stops may never report an exit, so keep this short.
 const VMM_EXIT_RECORD_GRACE: Duration = Duration::from_millis(500);
@@ -1019,6 +1022,34 @@ impl VirtSandbox {
         Ok(())
     }
 
+    /// Copies the host's registry auth file to the guest path that the
+    /// agent.image_registry_auth kernel parameter names. It must run before the first container
+    /// is created, since the guest image puller reads the file on its first pull only.
+    async fn copy_image_registry_auth(agent: &dyn Agent, host_path: &str) -> Result<()> {
+        if host_path.is_empty() {
+            return Ok(());
+        }
+        let data = std::fs::read(host_path)
+            .with_context(|| format!("read registry auth file {host_path}"))?;
+        if data.len() > MAX_REGISTRY_AUTH_FILE_SIZE {
+            return Err(anyhow!(
+                "registry auth file {host_path} is larger than {MAX_REGISTRY_AUTH_FILE_SIZE} bytes"
+            ));
+        }
+        agent
+            .copy_file(agent::CopyFileRequest {
+                path: GUEST_IMAGE_REGISTRY_AUTH_PATH.to_string(),
+                file_size: data.len() as i64,
+                file_mode: libc::S_IFREG | 0o400,
+                data,
+                ..Default::default()
+            })
+            .await
+            .context("copy registry auth file to guest")?;
+        info!(sl!(), "copied registry auth file {} to guest", host_path);
+        Ok(())
+    }
+
     async fn set_agent_policy(&self) -> Result<()> {
         // TODO: Exclude policy-related items from the annotations.
         let toml_config = self.resource_manager.config().await;
@@ -1506,6 +1537,9 @@ impl Sandbox for VirtSandbox {
             .create_sandbox(req)
             .await
             .context("create sandbox")?;
+
+        Self::copy_image_registry_auth(self.agent.as_ref(), &agent_config.image_registry_auth_file)
+            .await?;
 
         inner.state = SandboxState::Running;
         inner.created_at = Some(std::time::SystemTime::now());

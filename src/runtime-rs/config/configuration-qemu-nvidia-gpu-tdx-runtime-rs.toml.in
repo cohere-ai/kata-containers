@@ -549,6 +549,13 @@ debug_console_enabled = false
 # (agent default when unset: 6)
 launch_process_timeout = @DEFAULTLAUNCHPROCESSTIMEOUT_NV@
 
+# Host path of a registry auth file (containers-auth.json format) for pulling
+# private images inside the guest. The runtime copies it into the guest before
+# any container is created and adds the agent.image_registry_auth kernel
+# parameter, so it changes the measured kernel command line. The guest reads it
+# on its first image pull only. Unset by default.
+#image_registry_auth_file = "/etc/kata-containers/registry-auth.json"
+
 # Agent dial backoff in milliseconds (retry delay for hybrid vsock / remote;
 # vsock uses this as initial backoff, clamped by the agent implementation).
 # Makefile DEFDIALTIMEOUTMS_NV; total patience is reconnect_timeout_ms.
