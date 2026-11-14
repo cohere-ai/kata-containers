@@ -8724,6 +8724,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "awaitgroup",
+ "base64 0.22.1",
  "common",
  "containerd-shim-protos",
  "hypervisor",
