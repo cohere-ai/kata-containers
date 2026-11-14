@@ -13,6 +13,7 @@ use agent::{
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use common::error::is_normal_oom_shutdown_error;
 use common::types::utils::option_system_time_into;
 use common::types::ContainerProcess;
@@ -1031,6 +1032,8 @@ impl VirtSandbox {
         }
         let data = std::fs::read(host_path)
             .with_context(|| format!("read registry auth file {host_path}"))?;
+        let data = fill_registry_auth(&data)
+            .with_context(|| format!("parse registry auth file {host_path}"))?;
         if data.len() > MAX_REGISTRY_AUTH_FILE_SIZE {
             return Err(anyhow!(
                 "registry auth file {host_path} is larger than {MAX_REGISTRY_AUTH_FILE_SIZE} bytes"
@@ -2208,6 +2211,79 @@ impl Persist for VirtSandbox {
             vmm_exit_confirmed,
             vmm_process: Arc::new(RwLock::new(None)),
         })
+    }
+}
+
+/// Adds the "auth" field to registry entries that only have "username" and "password". The
+/// guest image puller rejects the whole file if any entry lacks "auth", while kubelet and
+/// containerd accept either form, so Kubernetes pull secrets often omit it.
+fn fill_registry_auth(data: &[u8]) -> Result<Vec<u8>> {
+    let mut config: serde_json::Value = serde_json::from_slice(data).context("invalid JSON")?;
+    let auths = config
+        .get_mut("auths")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| anyhow!("missing \"auths\" object"))?;
+    for (registry, entry) in auths.iter_mut() {
+        let entry = entry
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("entry for {registry} is not an object"))?;
+        if entry
+            .get("auth")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|auth| !auth.is_empty())
+        {
+            continue;
+        }
+        let field = |name: &str| entry.get(name).and_then(serde_json::Value::as_str);
+        let (Some(username), Some(password)) = (field("username"), field("password")) else {
+            return Err(anyhow!(
+                "entry for {registry} has neither \"auth\" nor \"username\" and \"password\""
+            ));
+        };
+        let auth = BASE64_STANDARD.encode(format!("{username}:{password}"));
+        entry.insert("auth".to_string(), auth.into());
+    }
+    serde_json::to_vec(&config).context("serialize registry auth file")
+}
+
+#[cfg(test)]
+mod registry_auth_tests {
+    use super::*;
+
+    fn auth_of(data: &[u8], registry: &str) -> String {
+        let config: serde_json::Value = serde_json::from_slice(data).unwrap();
+        config["auths"][registry]["auth"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn fills_auth_from_username_and_password() {
+        let out = fill_registry_auth(
+            br#"{"auths":{"r.example":{"username":"_json_key","password":"p:w"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            auth_of(&out, "r.example"),
+            BASE64_STANDARD.encode("_json_key:p:w")
+        );
+    }
+
+    #[test]
+    fn keeps_existing_auth() {
+        let out = fill_registry_auth(
+            br#"{"auths":{"r.example":{"auth":"a2VlcA==","username":"u","password":"p"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(auth_of(&out, "r.example"), "a2VlcA==");
+    }
+
+    #[test]
+    fn rejects_entries_without_credentials() {
+        assert!(fill_registry_auth(br#"{"auths":{"r.example":{"username":"u"}}}"#).is_err());
+        assert!(fill_registry_auth(br#"{"credHelpers":{}}"#).is_err());
+        assert!(fill_registry_auth(b"not json").is_err());
     }
 }
 
