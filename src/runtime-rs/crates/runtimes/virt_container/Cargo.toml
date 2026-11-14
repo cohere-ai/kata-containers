@@ -9,6 +9,7 @@ version = "0.1.0"
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 awaitgroup = { workspace = true }
+base64 = { workspace = true }
 containerd-shim-protos = { workspace = true }
 libc = { workspace = true }
 nix = { workspace = true }
