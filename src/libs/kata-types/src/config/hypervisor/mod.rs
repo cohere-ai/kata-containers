@@ -1844,6 +1844,12 @@ pub struct Hypervisor {
     /// Disable applying SELinux on the VMM process.
     #[serde(default)]
     pub disable_selinux: bool,
+
+    /// How long to wait, in milliseconds, for QEMU's QMP socket to accept the
+    /// handshake after QEMU starts. 0 uses the built-in default. Hosts that
+    /// launch several large VMs at once can need longer.
+    #[serde(default)]
+    pub qmp_connect_timeout_ms: u64,
 }
 
 fn yes() -> bool {

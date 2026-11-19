@@ -518,7 +518,7 @@ impl QemuInner {
 
         let qmp_socket_path = get_qmp_socket_path(self.id.as_str());
 
-        match Qmp::new(&qmp_socket_path) {
+        match Qmp::new(&qmp_socket_path, self.config.qmp_connect_timeout_ms) {
             Ok(mut qmp) => {
                 if let Some(subchannel) = ccw_subchannel {
                     qmp.set_ccw_subchannel(subchannel);

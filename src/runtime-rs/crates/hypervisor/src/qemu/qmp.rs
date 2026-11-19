@@ -98,7 +98,7 @@ impl Debug for Qmp {
 }
 
 impl Qmp {
-    pub fn new(qmp_sock_path: &str) -> Result<Self> {
+    pub fn new(qmp_sock_path: &str, connect_timeout_ms: u64) -> Result<Self> {
         let try_new_once_fn = || -> Result<Qmp> {
             let stream = UnixStream::connect(qmp_sock_path)?;
 
@@ -124,7 +124,12 @@ impl Qmp {
             Ok(qmp)
         };
 
-        let deadline = Instant::now() + Duration::from_millis(DEFAULT_QMP_CONNECT_DEADLINE_MS);
+        let connect_timeout_ms = if connect_timeout_ms == 0 {
+            DEFAULT_QMP_CONNECT_DEADLINE_MS
+        } else {
+            connect_timeout_ms
+        };
+        let deadline = Instant::now() + Duration::from_millis(connect_timeout_ms);
         let mut last_err: Option<anyhow::Error> = None;
 
         while Instant::now() < deadline {

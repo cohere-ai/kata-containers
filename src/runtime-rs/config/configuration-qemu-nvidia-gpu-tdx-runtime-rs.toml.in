@@ -502,6 +502,11 @@ disable_selinux = @DEFDISABLESELINUX@
 # (default: true)
 disable_guest_selinux = @DEFDISABLEGUESTSELINUX@
 
+# How long to wait, in milliseconds, for QEMU's QMP socket after QEMU starts.
+# Several TDs starting on one host at once can exceed the default.
+# (default: 0, which uses the built-in 50000)
+#qmp_connect_timeout_ms = 0
+
 
 [agent.@PROJECT_TYPE@]
 # If enabled, make the agent display debug-level messages.
