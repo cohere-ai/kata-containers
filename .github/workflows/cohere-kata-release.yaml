@@ -2,15 +2,20 @@ name: Build Kata release (Cohere)
 
 on:
   push:
+    branches:
+      - "cohere-*"
     tags:
       - "cohere-release-*"
+  pull_request:
+    branches:
+      - "cohere-*"
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Build every component from this commit: upstream's cached artefacts are
@@ -24,8 +29,55 @@ env:
   KBUILD_SIGN_PIN: ""
 
 jobs:
+  build-shim:
+    name: build-shim (x86_64, musl)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install yq
+        run: ./ci/install_yq.sh
+        env:
+          INSTALL_IN_GOPATH: false
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get -y install musl-tools protobuf-compiler cmake clang
+
+      - name: Install rust
+        run: |
+          ./tests/install_rust.sh
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build containerd-shim-kata-v2
+        working-directory: src/runtime-rs
+        run: make runtime BUILD_TYPE=release ARCH=x86_64 LIBC=musl
+
+      - name: Collect the shim
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/containerd-shim-kata-v2 dist/
+          cd dist
+          sha256sum containerd-shim-kata-v2 | tee containerd-shim-kata-v2.sha256
+          echo "\`$(cat containerd-shim-kata-v2.sha256)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Store the shim
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: containerd-shim-kata-v2-x86_64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
   build-asset:
     name: build-asset
+    # Pull requests only build the shim; the guest takes about an hour.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
