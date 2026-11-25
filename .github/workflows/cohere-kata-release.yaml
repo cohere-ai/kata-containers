@@ -184,3 +184,108 @@ jobs:
             kata-build/${{ matrix.asset }}.root_hash
           retention-days: 15
           if-no-files-found: error
+
+  assemble:
+    name: assemble
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [build-shim, build-guest-image]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install yq
+        run: ./ci/install_yq.sh
+        env:
+          INSTALL_IN_GOPATH: false
+
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Get the guest images
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: kata-guest-amd64-*
+          path: inputs
+          merge-multiple: true
+
+      - name: Get the guest kernel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kata-artifacts-amd64-kernel-nvidia-gpu
+          path: inputs
+
+      - name: Get the shim
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: containerd-shim-kata-v2-x86_64
+          path: inputs
+
+      - name: Assemble the release
+        run: ./tools/packaging/cohere/assemble-release.sh inputs dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Store the release
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: kata-release
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/cohere-release-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: assemble
+    permissions:
+      contents: read
+      packages: write # push the release to ghcr.io
+      id-token: write # sign the provenance
+      attestations: write # store the provenance
+    env:
+      RELEASE_IMAGE: ghcr.io/${{ github.repository }}/kata-release
+    steps:
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Get the release
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kata-release
+          path: dist
+
+      - name: Push the release
+        id: push
+        working-directory: dist
+        run: |
+          # Tags name the release; a manual run is named after its commit.
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="sha-${GITHUB_SHA}"
+          fi
+          echo "${GITHUB_TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          oras push "${RELEASE_IMAGE}:${tag}" \
+            --artifact-type application/vnd.cohere.kata.release \
+            --annotation "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --annotation "com.cohere.kata.version=$(jq -r .kata_version release.json)" \
+            --annotation "com.cohere.nvidia.driver=$(jq -r .nvidia_driver_version release.json)" \
+            kata-release.tar.zst:application/vnd.cohere.kata.release.tar+zstd \
+            release.json:application/vnd.cohere.kata.release+json
+          digest="$(oras manifest fetch "${RELEASE_IMAGE}:${tag}" --descriptor | jq -r .digest)"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          echo "\`${RELEASE_IMAGE}:${tag}@${digest}\`" >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
+        with:
+          subject-name: ${{ env.RELEASE_IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
