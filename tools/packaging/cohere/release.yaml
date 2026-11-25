@@ -30,3 +30,33 @@ runtime:
   qgs_port: 4050
   # Written by the cluster; a pod fails to start if it is missing.
   registry_auth_file: "/etc/kata-containers/registry-auth.json"
+
+# Predicts the TD registers of each shape from the assembled release.
+cvm_measure:
+  repository: "cohere-ai/cvm-measure"
+  commit: "9e93df1d81584285815cbf8f196d4c6410d2ff26"
+  platform: "platforms/oci-bm-gpu-b200-emr.json"
+
+# The pod VM sizes Kata gives QEMU for each GPU partition, at the model's
+# limits (24 CPU and 384Gi per GPU) plus TNG (2, 2Gi) and otelcol (100m,
+# 256Mi). With static sandbox sizing Kata boots ceil(CPU limits +
+# overhead_vcpus) vCPUs and memory limits + overhead_memory MiB; the release
+# config sets those overheads to 0.5 and 512. Both sizes are measured into
+# RTMR0.
+shapes:
+  - name: cc-gpu-1
+    gpus: 1
+    vcpus: 27
+    memory_mib: 396032
+  - name: cc-gpu-2
+    gpus: 2
+    vcpus: 51
+    memory_mib: 789248
+  - name: cc-gpu-4
+    gpus: 4
+    vcpus: 99
+    memory_mib: 1575680
+  - name: cc-gpu-8
+    gpus: 8
+    vcpus: 195
+    memory_mib: 3148544
