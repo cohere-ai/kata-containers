@@ -14,6 +14,8 @@ kata_static:
 # coco-extension-disk:<commit>-ubuntu26.04-amd64.
 coco_extension:
   image: "ghcr.io/cohere-ai/guest-components/coco-extension-disk"
+  # Empty until guest-components publishes the extension; assemble-release.sh
+  # refuses to run until it is set.
   digest: ""
   source_repository: "cohere-ai/guest-components"
 

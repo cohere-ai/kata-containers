@@ -1,3 +1,6 @@
+# Init-data for a pod that sets none. Every agent request is denied, so such a
+# pod never runs a container: a workload must bring init-data that its
+# attestation policy accepts.
 algorithm = "sha384"
 version = "0.1.0"
 
