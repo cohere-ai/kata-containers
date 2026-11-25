@@ -1,0 +1,134 @@
+name: Build Kata release (Cohere)
+
+on:
+  push:
+    tags:
+      - "cohere-release-*"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Build every component from this commit: upstream's cached artefacts are
+  # keyed by upstream branches, not by this fork.
+  USE_CACHE: "no"
+  PUSH_TO_REGISTRY: "no"
+  RELEASE: "no"
+  # Without a pin the guest kernel is built without module signing, as the
+  # hand-built 4.4.0 guest was. The modules ship inside the dm-verity images,
+  # which RTMR2 pins through kernel_verity_params.
+  KBUILD_SIGN_PIN: ""
+
+jobs:
+  build-asset:
+    name: build-asset
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        asset:
+          - agent
+          - busybox
+          - kernel-nvidia-gpu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the build derives versions from the commit history
+          persist-credentials: false
+
+      - name: Build ${{ matrix.asset }}
+        run: |
+          make "${KATA_ASSET}-tarball"
+          build_dir=$(readlink -f build)
+          mkdir -p kata-build && cp "${build_dir}"/kata-static-"${KATA_ASSET}"*.tar.* kata-build/.
+        env:
+          KATA_ASSET: ${{ matrix.asset }}
+          USE_DEVMAPPER: ${{ matrix.asset == 'agent' && 'yes' || 'no' }}
+
+      - name: Store ${{ matrix.asset }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: kata-artifacts-amd64-${{ matrix.asset }}
+          path: kata-build/kata-static-${{ matrix.asset }}.tar.zst
+          retention-days: 15
+          if-no-files-found: error
+
+      - name: Store ${{ matrix.asset }} modules
+        if: matrix.asset == 'kernel-nvidia-gpu'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: kata-artifacts-amd64-${{ matrix.asset }}-modules
+          path: kata-build/kata-static-${{ matrix.asset }}-modules.tar.zst
+          retention-days: 15
+          if-no-files-found: error
+
+  build-guest-image:
+    name: build-guest-image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    needs: build-asset
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        asset:
+          - rootfs-image-nvidia
+          - rootfs-image-nvidia-gpu-extension
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Get build-asset outputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: kata-artifacts-amd64-*
+          path: kata-artifacts
+          merge-multiple: true
+
+      - name: Build ${{ matrix.asset }}
+        run: |
+          make install-prebuilt-artifacts
+          make DEPS= "${KATA_ASSET}-tarball"
+          build_dir=$(readlink -f build)
+          mkdir -p kata-build && cp "${build_dir}"/kata-static-"${KATA_ASSET}".tar.zst kata-build/.
+        env:
+          KATA_ASSET: ${{ matrix.asset }}
+
+      - name: Record the root hash
+        run: |
+          tar --zstd -xOf "kata-build/kata-static-${KATA_ASSET}.tar.zst" \
+            --wildcards './opt/kata/share/kata-containers/root_hash_*.txt' \
+            | tee "kata-build/${KATA_ASSET}.root_hash"
+          {
+            echo "### ${KATA_ASSET}"
+            echo '```'
+            cat "kata-build/${KATA_ASSET}.root_hash"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          KATA_ASSET: ${{ matrix.asset }}
+
+      - name: Store ${{ matrix.asset }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: kata-guest-amd64-${{ matrix.asset }}
+          path: |
+            kata-build/kata-static-${{ matrix.asset }}.tar.zst
+            kata-build/${{ matrix.asset }}.root_hash
+          retention-days: 15
+          if-no-files-found: error
