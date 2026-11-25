@@ -5,7 +5,7 @@ on:
     branches:
       - "cohere-*"
     tags:
-      - "cohere-release-*"
+      - "kata-v*"
   pull_request:
     branches:
       - "cohere-*"
@@ -294,7 +294,7 @@ jobs:
 
   publish:
     name: publish
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/cohere-release-')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/kata-v')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: measure
@@ -324,13 +324,29 @@ jobs:
         id: push
         working-directory: dist
         run: |
-          # Tags name the release; a manual run is named after its commit.
+          # Tags name the release; a manual run is named after its commit. A
+          # name is never reused: "Re-run all jobs" publishes <name>-r<attempt>.
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             tag="${GITHUB_REF_NAME}"
+            prefix="kata-v$(jq -r .kata_version release.json)-cohere."
+            if [[ "${tag}" != "${prefix}"* ]]; then
+              echo "::error::release tags must start with ${prefix}"
+              exit 1
+            fi
           else
             tag="sha-${GITHUB_SHA}"
           fi
+          if [[ "${GITHUB_RUN_ATTEMPT}" -gt 1 ]]; then
+            tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
+          fi
           echo "${GITHUB_TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          if resolved="$(oras resolve "${RELEASE_IMAGE}:${tag}" 2>&1)"; then
+            echo "::error::refusing to replace ${RELEASE_IMAGE}:${tag} (${resolved})"
+            exit 1
+          elif ! grep -qi 'not found' <<< "${resolved}"; then
+            echo "::error::could not check that ${RELEASE_IMAGE}:${tag} is unused: ${resolved}"
+            exit 1
+          fi
           oras push "${RELEASE_IMAGE}:${tag}" \
             --artifact-type application/vnd.cohere.kata.release \
             --annotation "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
