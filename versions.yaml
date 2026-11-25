@@ -238,7 +238,7 @@ externals:
     desc: "NVIDIA compute stack"
     driver:
       desc: "NVIDIA kernel driver"
-      version: "615.71.09"
+      version: "620.70.06"
       # yamllint disable-line rule:line-length
       url: "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/"
       # Optional dedicated driver userspace repository - drivers released
@@ -287,7 +287,7 @@ externals:
         url: "https://github.com/NVIDIA/dcgm-exporter"
     nvat:
       desc: "NVIDIA Attestation SDK"
-      version: "2026.03.02"
+      version: "2026.10.02"
       url: "https://github.com/NVIDIA/attestation-sdk"
 
   upx:
