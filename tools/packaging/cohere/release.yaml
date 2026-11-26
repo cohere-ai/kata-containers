@@ -36,6 +36,9 @@ runtime:
 # Predicts the TD registers of each shape from the assembled release.
 cvm_measure:
   repository: "cohere-ai/cvm-measure"
+  # TODO(SIP-983): this is the head of feat/kata-tdx, which adds kata-tdx.
+  # Move to its merge commit once https://github.com/cohere-ai/cvm-measure/pull/35
+  # lands, and check that the predicted registers do not change.
   commit: "9e93df1d81584285815cbf8f196d4c6410d2ff26"
   platform: "platforms/oci-bm-gpu-b200-emr.json"
 
