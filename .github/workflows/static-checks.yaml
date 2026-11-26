@@ -138,6 +138,9 @@ jobs:
           - "make static-checks"
     env:
       GOPATH: ${{ github.workspace }}
+      # static-checks.sh diffs against origin/${branch}, which defaults to main.
+      # A fork's main is not the base of PRs to its release branches.
+      branch: ${{ github.event.pull_request.base.ref || 'main' }}
     permissions:
       contents: read  # for checkout
       packages: write # for push to ghcr.io
