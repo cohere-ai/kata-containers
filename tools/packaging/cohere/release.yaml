@@ -14,10 +14,11 @@ kata_static:
 # coco-extension-disk:<commit>-ubuntu26.04-amd64.
 coco_extension:
   image: "ghcr.io/cohere-ai/guest-components/coco-extension-disk"
-  # Empty until guest-components publishes the extension; assemble-release.sh
-  # refuses to run until it is set.
-  digest: ""
+  # coco-extension-disk:60f5d341e55ad73f7e96c8bb5b718e02bf4c1f1b-ubuntu26.04-amd64
+  digest: "sha256:e6d2ba08052f83eb4e1f0da544e7cf58872285170c41097a5b6941f1c66d2bad"
   source_repository: "cohere-ai/guest-components"
+  # Builds from other branches, including manual runs, are not accepted.
+  source_ref: "refs/heads/cohere-v0.23.1"
 
 # The measured runtime config, written to config.d/50-cohere.toml.
 runtime:

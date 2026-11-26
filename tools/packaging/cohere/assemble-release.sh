@@ -62,7 +62,8 @@ done
 
 # Only an extension built by guest-components' own workflow is accepted.
 gh attestation verify "oci://${coco_image}@${coco_digest}" \
-	--repo "$(pin .coco_extension.source_repository)"
+	--repo "$(pin .coco_extension.source_repository)" \
+	--source-ref "$(pin .coco_extension.source_ref)"
 oras pull "${coco_image}@${coco_digest}" -o "${work}/coco"
 install -m 0644 "${work}/coco/kata-containers-coco-extension.img" "${share}/"
 install -m 0644 "${work}/coco/root_hash_coco-extension.txt" "${share}/"
